@@ -27,9 +27,11 @@ html, body { background:var(--bg); color:var(--text1); font-family:-apple-system
 body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0; }
 
 .header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px 10px; position:sticky; top:0; background:var(--bg); z-index:100; }
-.header h1 { font-size:18px; font-weight:700; }
+.header h1 { font-size:18px; font-weight:700; flex:1; }
 .header h1 span { color:var(--accent); }
-.add-btn { width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; border:none; font-size:22px; line-height:36px; text-align:center; cursor:pointer; }
+.header-right { display:flex; align-items:center; gap:8px; }
+.fav-select { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:6px 10px; color:var(--text2); font-size:13px; outline:none; -webkit-appearance:none; min-width:100px; max-width:160px; }
+.add-btn { width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; border:none; font-size:22px; line-height:36px; text-align:center; cursor:pointer; flex-shrink:0; }
 
 .input-panel { display:none; padding:0 16px 12px; }
 .input-panel.show { display:block; }
@@ -60,9 +62,12 @@ body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0; }
 
 .line-inputs { display:flex; gap:6px; margin-top:8px; align-items:center; }
 .line-inputs label { font-size:11px; font-weight:700; width:14px; text-align:center; }
-.line-inputs input { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px; color:var(--text1); font-size:12px; outline:none; text-align:center; }
+.line-inputs input[type="text"] { flex:1; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:6px 8px; color:var(--text1); font-size:12px; outline:none; text-align:center; }
 .line-inputs input.yellow-line { border-color:#eab308; }
 .line-inputs input.white-line { border-color:rgba(255,255,255,0.5); }
+.save-wrap { display:flex; align-items:center; gap:3px; margin-left:4px; flex-shrink:0; }
+.save-wrap input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
+.save-wrap label { font-size:10px; color:var(--text3); cursor:pointer; white-space:nowrap; }
 
 .empty-state { text-align:center; padding:80px 40px; }
 .empty-icon { font-size:48px; margin-bottom:16px; opacity:0.3; }
@@ -77,12 +82,15 @@ body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0; }
 
 <div class="header">
   <h1><span>KOSPI</span> Chart</h1>
-  <button class="add-btn" id="addToggle">+</button>
+  <div class="header-right">
+    <select class="fav-select" id="favSelect"><option value="">-- 저장 종목 --</option></select>
+    <button class="add-btn" id="addToggle">+</button>
+  </div>
 </div>
 
 <div class="input-panel" id="inputPanel">
   <div class="input-row">
-    <input type="text" id="tickerInput" placeholder="종목코드 (예: 005930)" inputmode="numeric" maxlength="6">
+    <input type="text" id="tickerInput" placeholder="종목코드 (예: 005930, AAPL)" maxlength="10">
     <button class="btn-add" id="addStock">추가</button>
     <button class="btn-cancel" id="cancelAdd">취소</button>
   </div>
@@ -110,6 +118,7 @@ var addToggle = document.getElementById('addToggle');
 var addStockBtn = document.getElementById('addStock');
 var cancelAddBtn = document.getElementById('cancelAdd');
 var toastEl = document.getElementById('toast');
+var favSelect = document.getElementById('favSelect');
 
 var toastTimer;
 function showToast(msg) {
@@ -118,6 +127,56 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function() { toastEl.classList.remove('show'); }, 2500);
 }
+
+/* ---- 즐겨찾기 localStorage ---- */
+function loadFavorites() {
+  try { return JSON.parse(localStorage.getItem('kospi_favs') || '[]'); } catch(e) { return []; }
+}
+function saveFavorites(favs) {
+  localStorage.setItem('kospi_favs', JSON.stringify(favs));
+}
+function addFavorite(code, name) {
+  var favs = loadFavorites();
+  if (!favs.find(function(f) { return f.code === code; })) {
+    favs.push({ code: code, name: name || code });
+    saveFavorites(favs);
+  }
+  refreshFavSelect();
+}
+function removeFavorite(code) {
+  var favs = loadFavorites().filter(function(f) { return f.code !== code; });
+  saveFavorites(favs);
+  refreshFavSelect();
+}
+function isFavorite(code) {
+  return !!loadFavorites().find(function(f) { return f.code === code; });
+}
+function refreshFavSelect() {
+  var favs = loadFavorites();
+  while (favSelect.options.length > 1) favSelect.remove(1);
+  favs.forEach(function(f) {
+    var opt = document.createElement('option');
+    opt.value = f.code;
+    opt.textContent = f.name + ' (' + f.code + ')';
+    favSelect.appendChild(opt);
+  });
+}
+refreshFavSelect();
+
+/* ---- 콤보에서 선택 시 차트 추가 ---- */
+favSelect.addEventListener('change', function() {
+  var code = favSelect.value;
+  favSelect.value = '';
+  if (!code) return;
+  if (stocks.find(function(s) { return s.code === code; })) return;
+  if (stocks.length >= MAX_STOCKS) { showToast('최대 3개까지만 추가할 수 있습니다'); return; }
+  var stock = { code: code, name: code, interval: 3, timer: null, data: null, chart: null, el: null, yellowLine: null, whiteLine: null };
+  stocks.push(stock);
+  createChartCard(stock);
+  updateEmpty();
+  refreshStock(stock);
+  startTimer(stock);
+});
 
 addToggle.addEventListener('click', function() {
   if (stocks.length >= MAX_STOCKS) { showToast('최대 3개까지만 추가할 수 있습니다'); return; }
@@ -128,8 +187,26 @@ cancelAddBtn.addEventListener('click', function() { inputPanel.classList.remove(
 addStockBtn.addEventListener('click', function() { addNewStock(); });
 tickerInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') addNewStock(); });
 
+function getSymbol(code) {
+  if (/^\d{6}$/.test(code)) return code + '.KS';
+  return code.toUpperCase();
+}
+
+function isKRCode(code) {
+  return /^\d{6}$/.test(code);
+}
+
+function getCurrencyUnit(code) {
+  return isKRCode(code) ? '원' : '$';
+}
+
+function formatPrice(price, code) {
+  if (isKRCode(code)) return Math.round(price).toLocaleString() + '원';
+  return '$' + price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function fetchStockData(code) {
-  var symbol = code + '.KS';
+  var symbol = getSymbol(code);
   var url = CORS_PROXY + 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?range=1d&interval=5m';
   return fetch(url).then(function(res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -143,12 +220,14 @@ function fetchStockData(code) {
       var d = new Date(t * 1000);
       return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
     });
-    var prices = closes.map(function(c) { return c !== null ? Math.round(c) : null; });
+    var kr = isKRCode(code);
+    var prices = closes.map(function(c) { return c !== null ? (kr ? Math.round(c) : Math.round(c * 100) / 100) : null; });
     return {
       name: meta.symbol.replace('.KS', ''),
       longName: meta.longName || meta.shortName || code,
       price: meta.regularMarketPrice,
       prevClose: meta.chartPreviousClose || meta.previousClose,
+      currency: meta.currency || (kr ? 'KRW' : 'USD'),
       labels: labels,
       prices: prices,
       ok: true
@@ -162,7 +241,8 @@ function fetchStockData(code) {
 function addNewStock() {
   var code = tickerInput.value.trim();
   if (!code) { showToast('종목코드를 입력해주세요'); return; }
-  if (!/^\d{6}$/.test(code)) { showToast('6자리 숫자 종목코드를 입력해주세요'); return; }
+  if (!/^\d{6}$/.test(code) && !/^[A-Za-z]{1,5}$/.test(code)) { showToast('종목코드를 확인해주세요 (예: 005930, AAPL)'); return; }
+  code = /^\d{6}$/.test(code) ? code : code.toUpperCase();
   if (stocks.find(function(s) { return s.code === code; })) { showToast('이미 추가된 종목입니다'); return; }
   if (stocks.length >= MAX_STOCKS) { showToast('최대 3개까지만 추가할 수 있습니다'); return; }
 
@@ -207,7 +287,7 @@ function createChartCard(stock) {
   var infoDiv = document.createElement('div');
   infoDiv.className = 'chart-info';
   infoDiv.innerHTML = '<div class="stock-name">' + stock.code + '</div>' +
-    '<div class="stock-code">' + stock.code + '.KS</div>' +
+    '<div class="stock-code">' + getSymbol(stock.code) + '</div>' +
     '<div class="stock-price">--</div>' +
     '<div class="stock-change">--</div>' +
     '<div class="chart-status"><div class="status-dot"></div><span class="status-text">로딩 중...</span></div>';
@@ -243,10 +323,42 @@ function createChartCard(stock) {
 
   var lineDiv = document.createElement('div');
   lineDiv.className = 'line-inputs';
-  lineDiv.innerHTML = '<label style="color:#eab308">Y</label>' +
-    '<input type="text" class="yellow-line" placeholder="노랑선 가격" inputmode="decimal">' +
-    '<label style="color:#fff">W</label>' +
-    '<input type="text" class="white-line" placeholder="흰색선 가격" inputmode="decimal">';
+
+  var yLabel = document.createElement('label');
+  yLabel.style.color = '#eab308';
+  yLabel.textContent = 'Y';
+  var yInput = document.createElement('input');
+  yInput.type = 'text';
+  yInput.className = 'yellow-line';
+  yInput.placeholder = '노랑선 가격';
+  yInput.inputMode = 'decimal';
+
+  var wLabel = document.createElement('label');
+  wLabel.style.color = '#fff';
+  wLabel.textContent = 'W';
+  var wInput = document.createElement('input');
+  wInput.type = 'text';
+  wInput.className = 'white-line';
+  wInput.placeholder = '흰색선 가격';
+  wInput.inputMode = 'decimal';
+
+  var saveWrap = document.createElement('div');
+  saveWrap.className = 'save-wrap';
+  var saveChk = document.createElement('input');
+  saveChk.type = 'checkbox';
+  saveChk.id = 'save_' + stock.code;
+  saveChk.checked = isFavorite(stock.code);
+  var saveLbl = document.createElement('label');
+  saveLbl.htmlFor = 'save_' + stock.code;
+  saveLbl.textContent = '저장';
+  saveWrap.appendChild(saveChk);
+  saveWrap.appendChild(saveLbl);
+
+  lineDiv.appendChild(yLabel);
+  lineDiv.appendChild(yInput);
+  lineDiv.appendChild(wLabel);
+  lineDiv.appendChild(wInput);
+  lineDiv.appendChild(saveWrap);
 
   card.appendChild(topDiv);
   card.appendChild(chartWrap);
@@ -259,6 +371,7 @@ function createChartCard(stock) {
   gradient.addColorStop(0, 'rgba(96,165,250,0.25)');
   gradient.addColorStop(1, 'rgba(96,165,250,0.01)');
 
+  var unit = getCurrencyUnit(stock.code);
   stock.chart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -290,7 +403,7 @@ function createChartCard(stock) {
           padding: 8,
           displayColors: false,
           callbacks: {
-            label: function(c) { return c.parsed.y !== null ? c.parsed.y.toLocaleString() + '원' : ''; }
+            label: function(c) { return c.parsed.y !== null ? c.parsed.y.toLocaleString() + unit : ''; }
           }
         }
       },
@@ -312,16 +425,26 @@ function createChartCard(stock) {
     removeStock(stock);
   });
 
-  card.querySelector('.yellow-line').addEventListener('change', function(e) {
+  yInput.addEventListener('change', function(e) {
     var v = parseFloat(e.target.value.replace(/,/g, ''));
     stock.yellowLine = isNaN(v) ? null : v;
     updateAnnotations(stock);
   });
 
-  card.querySelector('.white-line').addEventListener('change', function(e) {
+  wInput.addEventListener('change', function(e) {
     var v = parseFloat(e.target.value.replace(/,/g, ''));
     stock.whiteLine = isNaN(v) ? null : v;
     updateAnnotations(stock);
+  });
+
+  saveChk.addEventListener('change', function() {
+    if (saveChk.checked) {
+      addFavorite(stock.code, stock.name);
+      showToast(stock.name + ' 저장됨');
+    } else {
+      removeFavorite(stock.code);
+      showToast(stock.name + ' 저장 해제');
+    }
   });
 }
 
@@ -334,19 +457,28 @@ function refreshStock(stock) {
       stock.data = result;
       stock.name = result.longName;
       stock.el.querySelector('.stock-name').textContent = result.longName;
-      stock.el.querySelector('.stock-code').textContent = stock.code + '.KS';
+      stock.el.querySelector('.stock-code').textContent = getSymbol(stock.code);
+
+      /* 즐겨찾기에 이름 업데이트 */
+      if (isFavorite(stock.code)) {
+        addFavorite(stock.code, result.longName);
+      }
 
       var price = result.price;
       var change = price - result.prevClose;
       var pct = (change / result.prevClose * 100);
       var isUp = change >= 0;
 
-      stock.el.querySelector('.stock-price').textContent = Math.round(price).toLocaleString() + '원';
+      stock.el.querySelector('.stock-price').textContent = formatPrice(price, stock.code);
       stock.el.querySelector('.stock-price').style.color = isUp ? 'var(--up)' : 'var(--down)';
 
       var sign = isUp ? '+' : '';
       var changeEl = stock.el.querySelector('.stock-change');
-      changeEl.textContent = sign + Math.round(change).toLocaleString() + ' (' + sign + pct.toFixed(2) + '%)';
+      if (isKRCode(stock.code)) {
+        changeEl.textContent = sign + Math.round(change).toLocaleString() + ' (' + sign + pct.toFixed(2) + '%)';
+      } else {
+        changeEl.textContent = sign + change.toFixed(2) + ' (' + sign + pct.toFixed(2) + '%)';
+      }
       changeEl.style.color = isUp ? 'var(--up)' : 'var(--down)';
 
       stock.chart.data.labels = result.labels;
