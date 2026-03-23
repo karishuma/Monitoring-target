@@ -226,7 +226,7 @@ function tryProxy(rawUrl, idx) {
   var proxy = PROXIES[idx];
   var finalUrl = proxy.build(rawUrl);
   console.log('[Stock] 시도: ' + proxy.name + ' → ' + finalUrl.substring(0, 80) + '...');
-  return fetch(finalUrl).then(function(res) {
+  return fetch(finalUrl, { cache: 'no-store' }).then(function(res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.text().then(function(text) {
       /* HTML 에러 페이지가 올 수 있음 */
@@ -246,7 +246,8 @@ function tryProxy(rawUrl, idx) {
 
 function fetchStockData(code) {
   var symbol = getSymbol(code);
-  var rawUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?range=1d&interval=5m';
+  /* 캐시 방지: 매 요청마다 타임스탬프 추가 */
+  var rawUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?range=1d&interval=5m&_t=' + Date.now();
 
   /* 작동하는 프록시를 먼저 시도 */
   var startIdx = workingProxyIdx >= 0 ? workingProxyIdx : 0;
