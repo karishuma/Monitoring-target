@@ -275,10 +275,26 @@ function fetchStockData(code) {
     });
     var kr = isKRCode(code);
     var prices = closes.map(function(c) { return c !== null ? (kr ? Math.round(c) : Math.round(c * 100) / 100) : null; });
+
+    /* 실시간 현재가를 차트 마지막 포인트로 추가 */
+    var now = new Date();
+    var nowLabel = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+    var currentPrice = meta.regularMarketPrice;
+    if (currentPrice && prices.length > 0) {
+      var lastLabel = labels[labels.length - 1];
+      if (nowLabel !== lastLabel) {
+        labels.push(nowLabel);
+        prices.push(kr ? Math.round(currentPrice) : Math.round(currentPrice * 100) / 100);
+      } else {
+        /* 같은 시간이면 마지막 값을 현재가로 갱신 */
+        prices[prices.length - 1] = kr ? Math.round(currentPrice) : Math.round(currentPrice * 100) / 100;
+      }
+    }
+
     return {
       name: meta.symbol.replace('.KS', ''),
       longName: meta.longName || meta.shortName || code,
-      price: meta.regularMarketPrice,
+      price: currentPrice,
       prevClose: meta.chartPreviousClose || meta.previousClose,
       labels: labels,
       prices: prices,
