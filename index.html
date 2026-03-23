@@ -106,15 +106,15 @@ body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0; }
 <div class="toast" id="toast"></div>
 
 <script>
-/* CORS 프록시 목록 (새 형식 포함) */
+/* CORS 프록시 목록 — 각각 URL 조합 방식이 다름 */
 var PROXIES = [
-  'https://corsproxy.io/?url=',
-  'https://api.allorigins.win/raw?url=',
-  'https://cors-anywhere.herokuapp.com/'
+  { name:'corsproxy-new', build: function(u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); } },
+  { name:'corsproxy-old', build: function(u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); } },
+  { name:'allorigins',    build: function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); } }
 ];
 var MAX_STOCKS = 3;
 var stocks = [];
-var workingProxy = null;
+var workingProxyIdx = -1; /* 성공한 프록시 인덱스 캐시 */
 
 var chartsArea = document.getElementById('chartsArea');
 var emptyState = document.getElementById('emptyState');
@@ -221,20 +221,26 @@ function formatPrice(price, code) {
 }
 
 /* ---- CORS 프록시 자동 폴백 ---- */
-function fetchWithProxy(rawUrl, proxyList, idx) {
-  idx = idx || 0;
-  if (idx >= proxyList.length) return Promise.reject(new Error('모든 프록시 실패'));
-  var prefix = proxyList[idx];
-  var finalUrl = prefix + encodeURIComponent(rawUrl);
+function tryProxy(rawUrl, idx) {
+  if (idx >= PROXIES.length) return Promise.reject(new Error('모든 프록시 실패'));
+  var proxy = PROXIES[idx];
+  var finalUrl = proxy.build(rawUrl);
+  console.log('[Stock] 시도: ' + proxy.name + ' → ' + finalUrl.substring(0, 80) + '...');
   return fetch(finalUrl).then(function(res) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json().then(function(json) {
-      workingProxy = prefix;
+    return res.text().then(function(text) {
+      /* HTML 에러 페이지가 올 수 있음 */
+      if (text.charAt(0) !== '{' && text.charAt(0) !== '[') {
+        throw new Error('JSON이 아닌 응답');
+      }
+      var json = JSON.parse(text);
+      console.log('[Stock] 성공: ' + proxy.name);
+      workingProxyIdx = idx;
       return json;
     });
   }).catch(function(e) {
-    console.warn('Proxy ' + idx + ' (' + prefix.substring(0, 30) + ') failed:', e.message);
-    return fetchWithProxy(rawUrl, proxyList, idx + 1);
+    console.warn('[Stock] 실패: ' + proxy.name + ' → ' + e.message);
+    return tryProxy(rawUrl, idx + 1);
   });
 }
 
@@ -242,16 +248,26 @@ function fetchStockData(code) {
   var symbol = getSymbol(code);
   var rawUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?range=1d&interval=5m';
 
-  var proxyOrder = PROXIES.slice();
-  if (workingProxy !== null) {
-    proxyOrder = [workingProxy].concat(PROXIES.filter(function(p) { return p !== workingProxy; }));
-  }
+  /* 작동하는 프록시를 먼저 시도 */
+  var startIdx = workingProxyIdx >= 0 ? workingProxyIdx : 0;
 
-  return fetchWithProxy(rawUrl, proxyOrder).then(function(json) {
+  return tryProxy(rawUrl, startIdx).catch(function() {
+    /* 캐시된 프록시 실패 시 처음부터 다시 */
+    if (startIdx > 0) {
+      workingProxyIdx = -1;
+      return tryProxy(rawUrl, 0);
+    }
+    return Promise.reject(new Error('데이터를 가져올 수 없습니다'));
+  }).then(function(json) {
+    if (!json.chart || !json.chart.result || !json.chart.result[0]) {
+      console.error('[Stock] 응답 구조 이상:', JSON.stringify(json).substring(0, 200));
+      throw new Error('Yahoo 응답 구조 오류');
+    }
     var result = json.chart.result[0];
     var meta = result.meta;
     var timestamps = result.timestamp || [];
-    var closes = result.indicators.quote[0].close || [];
+    var closes = (result.indicators && result.indicators.quote && result.indicators.quote[0]) ? (result.indicators.quote[0].close || []) : [];
+    console.log('[Stock] ' + symbol + ': 데이터 ' + timestamps.length + '개, 현재가 ' + meta.regularMarketPrice);
     var labels = timestamps.map(function(t) {
       var d = new Date(t * 1000);
       return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
@@ -268,7 +284,7 @@ function fetchStockData(code) {
       ok: true
     };
   }).catch(function(e) {
-    console.error('Fetch error:', e);
+    console.error('[Stock] 최종 에러:', e);
     return { ok: false, error: e.message };
   });
 }
@@ -498,6 +514,8 @@ function createChartCard(stock) {
 function refreshStock(stock) {
   var statusDot = stock.el.querySelector('.status-dot');
   var statusText = stock.el.querySelector('.status-text');
+  statusDot.className = 'status-dot';
+  statusText.textContent = '갱신 중...';
 
   fetchStockData(stock.code).then(function(result) {
     if (result.ok) {
@@ -542,7 +560,8 @@ function refreshStock(stock) {
 
       statusDot.className = 'status-dot live';
       var now = new Date();
-      statusText.textContent = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0') + ' 갱신';
+      var proxyName = workingProxyIdx >= 0 ? PROXIES[workingProxyIdx].name : '?';
+      statusText.textContent = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0') + ' (' + result.prices.length + '건, ' + proxyName + ')';
     } else {
       statusDot.className = 'status-dot error';
       statusText.textContent = result.error || '데이터 오류';
