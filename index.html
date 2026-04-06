@@ -87,6 +87,13 @@ body {
 .no-data {
   text-align: center; padding: 40px 16px; color: var(--muted); font-size: 14px;
 }
+.market-status {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600; margin-left: 6px;
+}
+.market-live { background: var(--green); color: #000; }
+.market-closed { background: var(--muted); color: var(--bg); }
+.data-date { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .footer {
   text-align: center; padding: 16px 0; color: var(--muted); font-size: 11px;
 }
@@ -95,7 +102,7 @@ body {
 <body>
 
 <div class="header">
-  <h1>매도 모니터링</h1>
+  <h1>매도 모니터링 <span id="market-badge"></span></h1>
   <div class="time" id="update-time">데이터 없음</div>
 </div>
 
@@ -110,11 +117,12 @@ body {
 <!-- ===== STOCK DATA (push_monitor.py 가 교체) ===== -->
 <script id="stock-data" type="application/json">
 {
-  "updated_at": "2026-04-06 21:03:06",
+  "updated_at": "2026-04-06 21:20:48",
+  "is_live": true,
   "stocks": [
     {
       "code": "012205",
-      "name": "",
+      "name": "계양전기우",
       "cur_price": 11000,
       "default_buy": 13550,
       "candles_5m": [
@@ -734,11 +742,12 @@ body {
           "close": 11000,
           "volume": 73108
         }
-      ]
+      ],
+      "data_date": "20260406"
     },
     {
       "code": "006110",
-      "name": "",
+      "name": "삼아알미늄",
       "cur_price": 38000,
       "default_buy": 36950,
       "candles_5m": [
@@ -1358,11 +1367,12 @@ body {
           "close": 38000,
           "volume": 16525
         }
-      ]
+      ],
+      "data_date": "20260406"
     },
     {
       "code": "010170",
-      "name": "",
+      "name": "대한광통신",
       "cur_price": 13590,
       "default_buy": 13200,
       "candles_5m": [
@@ -1982,11 +1992,12 @@ body {
           "close": 13590,
           "volume": 487067
         }
-      ]
+      ],
+      "data_date": "20260406"
     },
     {
       "code": "092790",
-      "name": "",
+      "name": "넥스틸",
       "cur_price": 14990,
       "default_buy": 14260,
       "candles_5m": [
@@ -2606,11 +2617,12 @@ body {
           "close": 14990,
           "volume": 37513
         }
-      ]
+      ],
+      "data_date": "20260406"
     },
     {
       "code": "028050",
-      "name": "",
+      "name": "삼성E&A",
       "cur_price": 45650,
       "default_buy": 43000,
       "candles_5m": [
@@ -3230,11 +3242,12 @@ body {
           "close": 45650,
           "volume": 110438
         }
-      ]
+      ],
+      "data_date": "20260406"
     },
     {
       "code": "330860",
-      "name": "",
+      "name": "네패스아크",
       "cur_price": 29100,
       "default_buy": 27000,
       "candles_5m": [
@@ -3854,11 +3867,12 @@ body {
           "close": 29100,
           "volume": 14924
         }
-      ]
+      ],
+      "data_date": "20260406"
     },
     {
       "code": "033790",
-      "name": "",
+      "name": "피노",
       "cur_price": 10330,
       "default_buy": 10350,
       "candles_5m": [
@@ -4478,7 +4492,8 @@ body {
           "close": 10330,
           "volume": 93677
         }
-      ]
+      ],
+      "data_date": "20260406"
     }
   ]
 }
@@ -4762,6 +4777,14 @@ function renderAll() {
   document.getElementById("update-time").textContent =
     "업데이트: " + (data.updated_at || "-");
 
+  // 장중/마감 표시
+  var badge = document.getElementById("market-badge");
+  if (data.is_live) {
+    badge.innerHTML = '<span class="market-status market-live">장중</span>';
+  } else {
+    badge.innerHTML = '<span class="market-status market-closed">장 마감</span>';
+  }
+
   const container = document.getElementById("stocks-container");
   container.innerHTML = "";
 
@@ -4785,6 +4808,11 @@ function renderAll() {
       input.addEventListener("input", function () {
         recalc(idx, parseFloat(this.value) || 0);
       });
+      // 탭/클릭 시 전체 선택
+      input.addEventListener("focus", function () {
+        var self = this;
+        setTimeout(function() { self.select(); }, 0);
+      });
       // 초기 계산
       recalc(idx, defaultBuy);
     }
@@ -4792,11 +4820,19 @@ function renderAll() {
 }
 
 function buildCardHTML(stock, idx, curPrice, defaultBuy) {
+  // 데이터 날짜 표시
+  var dateInfo = '';
+  if (stock.data_date) {
+    var dd = stock.data_date;
+    dateInfo = '<div class="data-date">' + dd.substring(0,4) + '-' + dd.substring(4,6) + '-' + dd.substring(6,8) + ' 데이터</div>';
+  }
+
   return '' +
     '<div class="stock-title">' +
-      '<span class="stock-code">' + stock.code + (stock.name ? ' ' + stock.name : '') + '</span>' +
+      '<span class="stock-code">' + (stock.name ? stock.name + ' ' : '') + stock.code + '</span>' +
       '<span class="stock-price">' + fmt(curPrice) + '원</span>' +
     '</div>' +
+    dateInfo +
     '<div class="buy-row">' +
       '<label>매수가</label>' +
       '<input type="number" class="buy-input" value="' + Math.round(defaultBuy) + '" placeholder="매수가 입력" inputmode="numeric">' +
